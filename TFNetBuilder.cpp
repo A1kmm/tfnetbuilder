@@ -36,7 +36,9 @@ class TFNetBuilder
 {
 public:
   TFNetBuilder(const fs::path& aBaSeTraM)
-    : mTFBSProcessed(0), mBaSeTraM(aBaSeTraM), mGBP(NewGenBankParser()),
+    : mTFBSProcessed(0), mEdgeCalls(0), mTFBSUsed(0), mTFBSUnused(0),
+      mTFBSUsedProbs(0.0), mTFBSUnusedProbs(0.0),
+      mBaSeTraM(aBaSeTraM), mGBP(NewGenBankParser()),
       mBTP(NewGenBankParser()), mComplement(false), mTFBSSink(this)
   {
     mGBP->SetSink(this);
@@ -102,10 +104,16 @@ public:
       aOutput << ")" << std::endl;
     }
 
-    aOutput << "# There are " << nEdges << " edges" << std::endl;
-    aOutput << "# " << mTFBSProcessed
+    aOutput << "# There are " << nEdges << " edges" << std::endl
+            << "# " << mTFBSProcessed
             << " transcription factor binding sites processed."
-            << std::endl;
+            << std::endl
+            << "# Total number of gene-TFBS region overlaps: " << mEdgeCalls
+            << "." << std::endl
+            << "# Average probability for TFBS assigned to genes: "
+            << (mTFBSUsedProbs / mTFBSUsed) << std::endl
+            << "# Average probability for TFBS not assigned to genes: "
+            << (mTFBSUnusedProbs / mTFBSUnused) << std::endl;
   }
 
   void
@@ -139,13 +147,9 @@ public:
            j++
           )
           {
-            // Look up the name from HGNC...
-            std::map<std::string, uint32_t>::iterator i
-              (mHGNCIdMappings.find(*j));
-            
-
-            if (i != mHGNCIdMappings.end())
-              mHGNCByTRANSFAC.insert(std::pair<std::string, uint32_t>(AC, (*i).second));
+            uint32_t id(findHGNCIdByName(*j));
+            if (id != 0)
+              mHGNCByTRANSFAC.insert(std::pair<std::string, uint32_t>(AC, id));
           }
         }
         seenAC = false;
@@ -340,6 +344,8 @@ public:
               std::string TRANSFAC, double probability)
   {
     mTFBSProcessed++;
+    bool hadEdge = false;
+
     if (isComplement)
     {
       size_t offset((start > kUpstreamZone) ? start - kUpstreamZone : 0);
@@ -350,7 +356,7 @@ public:
       for (next--;
            (next >= mReverseGenes.begin()) && (*next).offset >= offset;
            next--)
-        processEdge(TRANSFAC, (*next).hgncId);
+        hadEdge |= processEdge(TRANSFAC, (*next).hgncId);
     }
     else
     {
@@ -362,13 +368,25 @@ public:
       for (next--;
            (next >= mForwardGenes.begin()) && (*next).offset >= offset;
            next--)
-        processEdge(TRANSFAC, (*next).hgncId);
+        hadEdge |= processEdge(TRANSFAC, (*next).hgncId);
+    }
+
+    if (hadEdge)
+    {
+      mTFBSUsed++;
+      mTFBSUsedProbs += probability;
+    }
+    else
+    {
+      mTFBSUnused++;
+      mTFBSUnusedProbs += probability;
     }
   }
 
 private:
-  uint32_t mTFBSProcessed;
-  static const uint32_t kUpstreamZone = 200, kDownstreamZone = 50;
+  uint32_t mTFBSProcessed, mEdgeCalls, mTFBSUsed, mTFBSUnused;
+  double mTFBSUsedProbs, mTFBSUnusedProbs;
+  static const uint32_t kUpstreamZone = 4000, kDownstreamZone = 1000;
   fs::path mBaSeTraM, mChromosomeDir, mContigFile;
   GenBankParser* mGBP, * mBTP;
   bool mComplement;
@@ -400,12 +418,16 @@ private:
                            (dcmapping, aHGNC));
   }
 
-  void processEdge(const std::string& aTRANSFAC, uint32_t aTargetHGNC)
+  bool processEdge(const std::string& aTRANSFAC, uint32_t aTargetHGNC)
   {
+    mEdgeCalls++;
+
     std::map<std::string, uint32_t>::iterator i
       (mHGNCByTRANSFAC.find(aTRANSFAC));
     if (i == mHGNCByTRANSFAC.end())
-      return;
+    {
+      return false;
+    }
 
     uint32_t sourceHGNC = (*i).second;
 
@@ -414,6 +436,8 @@ private:
     mUsedHGNCIds.insert(sourceHGNC);
     mUsedHGNCIds.insert(aTargetHGNC);
     mEdges.insert(std::pair<uint32_t, uint32_t>(sourceHGNC, aTargetHGNC));
+
+    return true;
   }
 
   std::string
@@ -505,6 +529,63 @@ private:
     bool mInTFBS, mIsComplement;
     uint32_t mStart, mEnd;
   };
+
+  uint32_t
+  findHGNCIdByName(const std::string& aName, bool stripDashes = true)
+  {
+    // Look up the name from HGNC...
+    std::map<std::string, uint32_t>::iterator i
+      (mHGNCIdMappings.find(aName));
+    if (i != mHGNCIdMappings.end())
+      return (*i).second;
+
+    // See if it ends in a number...
+    static const boost::regex endNumber("(\\-?)([0-9]+)$");
+    boost::smatch res;
+    if (boost::regex_search(aName, res, endNumber))
+    {
+      i = mHGNCIdMappings.find(res.prefix().str());
+      if (i != mHGNCIdMappings.end())
+        return (*i).second;
+
+      std::string tryAlso;
+      if (res[2].str() == "alpha")
+        tryAlso = "A";
+      else if (res[2].str() == "beta")
+        tryAlso = "B";
+      else if (res[2].str() == "1")
+        tryAlso = "I";
+      else if (res[2].str() == "2")
+        tryAlso = "II";
+
+      std::string attempt(res.prefix().str());
+      attempt += tryAlso;
+      i = mHGNCIdMappings.find(attempt);
+      if (i != mHGNCIdMappings.end())
+        return (*i).second;
+    }
+
+    // Try adding a suffix like 1 or A...
+    std::string attempt = aName + "1";
+    i = mHGNCIdMappings.find(attempt);
+    if (i != mHGNCIdMappings.end())
+      return (*i).second;
+    
+    attempt = aName + "A";
+    i = mHGNCIdMappings.find(attempt);
+    if (i != mHGNCIdMappings.end())
+      return (*i).second;
+
+    if (stripDashes)
+    {
+      // Strip out all dashes and repeat...
+      std::string dashless(boost::replace_all_copy(aName, "ALPHA", "A"));
+      boost::replace_all(dashless, "-", "");
+      return findHGNCIdByName(dashless, false);
+    }
+
+    return 0;
+  }
 
   TFBSSink mTFBSSink;
 };
