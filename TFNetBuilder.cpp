@@ -435,7 +435,7 @@ private:
     // edge set for now, and also mark the source and target as used.
     mUsedHGNCIds.insert(sourceHGNC);
     mUsedHGNCIds.insert(aTargetHGNC);
-    mEdges.insert(std::pair<uint32_t, uint32_t>(sourceHGNC, aTargetHGNC));
+    mEdges.insert(std::pair<uint32_t, uint32_t>(aTargetHGNC, sourceHGNC));
 
     return true;
   }

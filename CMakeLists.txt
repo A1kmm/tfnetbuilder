@@ -1,3 +1,4 @@
+cmake_minimum_required(VERSION 2.4)
 FIND_PACKAGE(Boost REQUIRED)
 INCLUDE_DIRECTORIES(${Boost_INCLUDE_DIRS})
 LINK_DIRECTORIES(${Boost_LIBRARY_DIRS} ../parsegenbank)
