@@ -386,7 +386,7 @@ public:
 private:
   uint32_t mTFBSProcessed, mEdgeCalls, mTFBSUsed, mTFBSUnused;
   double mTFBSUsedProbs, mTFBSUnusedProbs;
-  static const uint32_t kUpstreamZone = 4000, kDownstreamZone = 1000;
+  static const uint32_t kUpstreamZone = 15000, kDownstreamZone = 1000;
   fs::path mBaSeTraM, mChromosomeDir, mContigFile;
   GenBankParser* mGBP, * mBTP;
   bool mComplement;
