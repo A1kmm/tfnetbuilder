@@ -37,7 +37,7 @@ class TFNetBuilder
 public:
   TFNetBuilder(const fs::path& aBaSeTraM)
     : mTFBSProcessed(0), mEdgeCalls(0), mTFBSUsed(0), mTFBSUnused(0),
-      mTFBSUsedProbs(0.0), mTFBSUnusedProbs(0.0),
+      mTFBSUsedProbs(0.0), mTFBSUnusedProbs(0.0), nRegulated(0),
       mBaSeTraM(aBaSeTraM), mGBP(NewGenBankParser()),
       mBTP(NewGenBankParser()), mComplement(false), mTFBSSink(this)
   {
@@ -57,12 +57,13 @@ public:
     aOutput << "VERTICES" << std::endl;
     for
     (
-     std::set<uint32_t>::iterator i = mUsedHGNCIds.begin();
+     std::map<uint32_t, uint32_t>::iterator i = mUsedHGNCIds.begin();
      i != mUsedHGNCIds.end();
      i++
     )
-      aOutput << "VERTEX " << (*i) << " " << mNameByHGNCId[*i]
-              << std::endl;
+      if ((*i).second >= kMinRegs)
+        aOutput << "VERTEX " << (*i).first << " " << mNameByHGNCId[(*i).first]
+                << std::endl;
     aOutput << "ENDVERTICES" << std::endl;
 
     uint32_t nEdges = 0;
@@ -76,28 +77,35 @@ public:
      i++
     )
     {
-      nEdges++;
-      edges.insert(*i);
+      if (mUsedHGNCIds[(*i).second] >= kMinRegs)
+      {
+        nEdges++;
+        
+        edges.insert(*i);
+      }
     }
 
     for
     (
-     std::set<uint32_t>::iterator i = mUsedHGNCIds.begin();
+     std::map<uint32_t, uint32_t>::iterator i = mUsedHGNCIds.begin();
      i != mUsedHGNCIds.end();
      i++
     )
     {
-      std::multimap<uint32_t, uint32_t>::iterator j(edges.find(*i));
+      if ((*i).second < kMinRegs)
+        continue;
+
+      std::multimap<uint32_t, uint32_t>::iterator j(edges.find((*i).first));
 
       if (j == edges.end())
         continue;
 
-      aOutput << "EDGES " << (*i)
+      aOutput << "EDGES " << (*i).first
               << " (";
       for
       (
        ;
-       j != edges.end() && (*j).first == (*i);
+       j != edges.end() && (*j).first == (*i).first;
        j++
       )
         aOutput << (*j).second << " ";
@@ -343,6 +351,9 @@ public:
   processTFBS(bool isComplement, uint32_t start, uint32_t end,
               std::string TRANSFAC, double probability)
   {
+    if (probability < kMinProbability)
+      return;
+
     mTFBSProcessed++;
     bool hadEdge = false;
 
@@ -386,7 +397,10 @@ public:
 private:
   uint32_t mTFBSProcessed, mEdgeCalls, mTFBSUsed, mTFBSUnused;
   double mTFBSUsedProbs, mTFBSUnusedProbs;
-  static const uint32_t kUpstreamZone = 15000, kDownstreamZone = 1000;
+  static const uint32_t kUpstreamZone = 15000, kDownstreamZone = 1000, kMinRegs = 1;
+  static const uint32_t kMaxRegulated = 3500;
+  uint32_t nRegulated;
+  static const double kMinProbability = 0.5;
   fs::path mBaSeTraM, mChromosomeDir, mContigFile;
   GenBankParser* mGBP, * mBTP;
   bool mComplement;
@@ -433,8 +447,21 @@ private:
 
     // We now have a source and target HGNC id... Just add them to the
     // edge set for now, and also mark the source and target as used.
-    mUsedHGNCIds.insert(sourceHGNC);
-    mUsedHGNCIds.insert(aTargetHGNC);
+
+    std::map<uint32_t, uint32_t>::iterator j;
+    if ((j = mUsedHGNCIds.find(aTargetHGNC)) != mUsedHGNCIds.end())
+      (*j).second++;
+    else
+    {
+      if (nRegulated++ > kMaxRegulated)
+        return false;
+      mUsedHGNCIds.insert(std::pair<uint32_t, uint32_t>(aTargetHGNC, 1));
+    }
+
+    // The edge set for the source is set to 1000, which is a special to
+    // guarantee it is included.
+    mUsedHGNCIds[sourceHGNC] = 1000;
+
     mEdges.insert(std::pair<uint32_t, uint32_t>(aTargetHGNC, sourceHGNC));
 
     return true;
@@ -449,7 +476,7 @@ private:
     return uc;
   }
 
-  std::set<uint32_t> mUsedHGNCIds;
+  std::map<uint32_t, uint32_t> mUsedHGNCIds;
   std::set<std::pair<uint32_t, uint32_t> > mEdges;
 
   class TFBSSink
