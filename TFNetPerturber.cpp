@@ -118,7 +118,8 @@ public:
         }
         else
         {
-          std::cout << "VERTEX " << m[1].str() << m[2].str() << std::endl;
+          std::cout << "VERTEX " << m[1].str() << " "
+                    << m[2].str() << std::endl;
         }
       }
     }
@@ -156,19 +157,26 @@ public:
 private:
   double mProb;
 };
+static LabelSwitchingPerturber klsp;
 
 class EdgeDeletingPerturber
   : public ModelPerturber
 {
 public:
   EdgeDeletingPerturber()
-    : ModelPerturber("edge_deleting")
+    : ModelPerturber("edge_deleting"), mProbDeletion(0.5)
   {
   }
 
   void
   setParams(const std::string& aParams)
   {
+    mProbDeletion = strtod(aParams.c_str(), NULL);
+  }
+
+  const char* getParameterHelp()
+  {
+    return "Use --params=<probDeletion> to set the probability a given edge is deleted.";
   }
 
   void
@@ -184,9 +192,61 @@ public:
       return;
     }
     std::cout << l << std::endl;
-  }
-};
 
+    while (modelFile.good())
+    {
+      std::getline(modelFile, l);
+      
+      std::cout << l << std::endl;
+      if (l == "ENDVERTICES")
+        break;
+    }
+
+    static const boost::regex edger("^EDGES ([0-9]+) \\(([^\\)]+)\\)$");
+    boost::smatch m;
+    boost::mt19937 rng;
+    boost::uniform_real<double> ur;
+
+    rng.seed(time(0));
+
+    while (modelFile.good())
+    {
+      std::getline(modelFile, l);
+
+      if (!modelFile.good())
+        break;
+
+      if (boost::regex_match(l, m, edger))
+      {
+        std::string regs;
+        boost::sregex_token_iterator e;
+        const boost::regex split("[ \t]+");
+        std::string match(m[2]);
+        for (boost::sregex_token_iterator i = boost::make_regex_token_iterator(match, split, -1);
+             i != e; i++)
+        {
+          if (*i == "")
+            continue;
+          if (ur(rng) <= mProbDeletion)
+            continue;
+          regs += *i + " ";
+        }
+
+        if (regs == "")
+          continue;
+
+        std::cout << "EDGES " << m[1] << " (" << regs << ")"
+                  << std::endl;
+      }
+      else
+        std::cout << l << std::endl;
+    }
+  }
+
+private:
+  double mProbDeletion;
+};
+static EdgeDeletingPerturber kedp;
 
 int
 main(int argc, char** argv)
