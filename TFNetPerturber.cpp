@@ -248,6 +248,301 @@ private:
 };
 static EdgeDeletingPerturber kedp;
 
+class EdgeInsertingPerturber
+  : public ModelPerturber
+{
+public:
+  EdgeInsertingPerturber()
+    : ModelPerturber("edge_inserting"), mPercentInserted(0.5)
+  {
+  }
+
+  void
+  setParams(const std::string& aParams)
+  {
+    mPercentInserted = strtod(aParams.c_str(), NULL);
+  }
+
+  const char* getParameterHelp()
+  {
+    return "Use --params=<percentInsertion> to set the number of edges to insert as a "
+      "percentage of the current edge count.";
+  }
+
+  void
+  perturb(const std::string& aModelFile)
+  {
+    std::ifstream modelFile(aModelFile.c_str());
+
+    std::string l;
+    std::getline(modelFile, l);
+
+    if (l != "VERTICES")
+    {
+      std::cerr << "Expected VERTICES line" << std::endl;
+      return;
+    }
+    std::cout << l << std::endl;
+
+    static const boost::regex vertexr("^VERTEX ([0-9]+) .*$");
+    boost::smatch m;
+
+    std::vector<uint32_t> vertices;
+
+    while (modelFile.good())
+    {
+      std::getline(modelFile, l);
+      
+      std::cout << l << std::endl;
+      if (l == "ENDVERTICES")
+        break;
+
+      if (boost::regex_match(l, m, vertexr))
+      {
+        vertices.push_back(strtoul(m[1].str().c_str(), NULL, 10));
+      }
+    }
+
+    static const boost::regex edger("^EDGES ([0-9]+) \\(([^\\)]+)\\)$");
+    boost::mt19937 rng;
+
+    rng.seed(time(0));
+
+    std::set<std::pair<uint32_t, uint32_t> > edges;
+
+    while (modelFile.good())
+    {
+      std::getline(modelFile, l);
+
+      if (!modelFile.good())
+        break;
+
+      if (boost::regex_match(l, m, edger))
+      {
+        uint32_t regulated = strtoul(m[1].str().c_str(), NULL, 10);
+
+        std::string regs;
+        boost::sregex_token_iterator e;
+        const boost::regex split("[ \t]+");
+        std::string match(m[2]);
+        for (boost::sregex_token_iterator i = boost::make_regex_token_iterator(match, split, -1);
+             i != e; i++)
+        {
+          uint32_t regulator = strtoul((*i).str().c_str(), NULL, 10);
+          edges.insert(std::pair<uint32_t, uint32_t>(regulated, regulator));
+        }
+      }
+    }
+
+    boost::uniform_int<uint32_t> ur(0, vertices.size() - 1);
+    uint32_t numAdditions = edges.size() * mPercentInserted * 0.01;
+    for (uint32_t i = 0; i < numAdditions; i++)
+    {
+      uint32_t regulator, regulated;
+      while (true)
+      {
+        regulator = vertices[ur(rng)];
+        regulated = vertices[ur(rng)];
+        if (regulator == regulated)
+          continue;
+
+        std::pair<uint32_t, uint32_t> p(regulated, regulator);
+        if (edges.count(p) == 0)
+        {
+          edges.insert(p);
+          break;
+        }
+      }
+    }
+
+    std::map<uint32_t, std::vector<uint32_t> > collatedEdges;
+    for (std::set<std::pair<uint32_t, uint32_t> >::iterator i = edges.begin();
+         i != edges.end();
+         i++)
+    {
+      if (collatedEdges.count((*i).first) == 0)
+      {
+        std::vector<uint32_t> v;
+        v.push_back((*i).second);
+        collatedEdges.insert(std::pair<uint32_t, std::vector<uint32_t> >((*i).first, v));
+      }
+      else
+        collatedEdges[(*i).first].push_back((*i).second);
+    }
+
+   
+    for (std::map<uint32_t, std::vector<uint32_t> >::iterator i = collatedEdges.begin();
+         i != collatedEdges.end();
+         i++)
+    {
+      std::cout << "EDGES " << (*i).first << " (";
+      for (std::vector<uint32_t>::iterator j = (*i).second.begin();
+           j != (*i).second.end();
+           j++)
+        std::cout << (*j) << " ";
+      std::cout << ")" << std::endl;
+    }
+  }
+
+private:
+  double mPercentInserted;
+};
+static EdgeInsertingPerturber keip;
+
+class EdgeReplacingPerturber
+  : public ModelPerturber
+{
+public:
+  EdgeReplacingPerturber()
+    : ModelPerturber("edge_replacing"), mProbReplaced(0.5)
+  {
+  }
+
+  void
+  setParams(const std::string& aParams)
+  {
+    mProbReplaced = strtod(aParams.c_str(), NULL);
+  }
+
+  const char* getParameterHelp()
+  {
+    return "Use --params=<probReplaced> to set the probability a given edge "
+      "gets replaced in the model.";
+  }
+
+  void
+  perturb(const std::string& aModelFile)
+  {
+    std::ifstream modelFile(aModelFile.c_str());
+
+    std::string l;
+    std::getline(modelFile, l);
+
+    if (l != "VERTICES")
+    {
+      std::cerr << "Expected VERTICES line" << std::endl;
+      return;
+    }
+    std::cout << l << std::endl;
+
+    static const boost::regex vertexr("^VERTEX ([0-9]+) .*$");
+    boost::smatch m;
+
+    std::vector<uint32_t> vertices;
+
+    while (modelFile.good())
+    {
+      std::getline(modelFile, l);
+      
+      std::cout << l << std::endl;
+      if (l == "ENDVERTICES")
+        break;
+
+      if (boost::regex_match(l, m, vertexr))
+      {
+        vertices.push_back(strtoul(m[1].str().c_str(), NULL, 10));
+      }
+    }
+
+    static const boost::regex edger("^EDGES ([0-9]+) \\(([^\\)]+)\\)$");
+    boost::mt19937 rng;
+
+    rng.seed(time(0));
+
+    std::set<std::pair<uint32_t, uint32_t> > edges;
+
+    while (modelFile.good())
+    {
+      std::getline(modelFile, l);
+
+      if (!modelFile.good())
+        break;
+
+      if (boost::regex_match(l, m, edger))
+      {
+        uint32_t regulated = strtoul(m[1].str().c_str(), NULL, 10);
+
+        std::string regs;
+        boost::sregex_token_iterator e;
+        const boost::regex split("[ \t]+");
+        std::string match(m[2]);
+        for (boost::sregex_token_iterator i = boost::make_regex_token_iterator(match, split, -1);
+             i != e; i++)
+        {
+          uint32_t regulator = strtoul((*i).str().c_str(), NULL, 10);
+          edges.insert(std::pair<uint32_t, uint32_t>(regulated, regulator));
+        }
+      }
+    }
+
+    std::set<std::pair<uint32_t, uint32_t> > newEdges(edges);
+    boost::uniform_real<double> ur;
+    boost::uniform_int<uint32_t> iur(0, vertices.size() - 1);
+
+    for (
+         std::set<std::pair<uint32_t, uint32_t> >::iterator i =
+           edges.begin();
+         i != edges.end();
+         i++
+        )
+    {
+      if (ur(rng) < mProbReplaced)
+      {
+        while (true)
+        {
+          uint32_t regulator = vertices[iur(rng)];
+          uint32_t regulated = vertices[iur(rng)];
+          if (regulator == regulated)
+            continue;
+
+          std::pair<uint32_t, uint32_t> p(regulated, regulator);
+          if (edges.count(p) == 0 && newEdges.count(p) == 0)
+          {
+            newEdges.insert(p);
+            break;
+          }
+        }
+      }
+      else
+      {
+        newEdges.insert(*i);
+      }
+    }
+
+    std::map<uint32_t, std::vector<uint32_t> > collatedEdges;
+    for (std::set<std::pair<uint32_t, uint32_t> >::iterator i = newEdges.begin();
+         i != newEdges.end();
+         i++)
+    {
+      if (collatedEdges.count((*i).first) == 0)
+      {
+        std::vector<uint32_t> v;
+        v.push_back((*i).second);
+        collatedEdges.insert(std::pair<uint32_t, std::vector<uint32_t> >((*i).first, v));
+      }
+      else
+        collatedEdges[(*i).first].push_back((*i).second);
+    }
+
+   
+    for (std::map<uint32_t, std::vector<uint32_t> >::iterator i = collatedEdges.begin();
+         i != collatedEdges.end();
+         i++)
+    {
+      std::cout << "EDGES " << (*i).first << " (";
+      for (std::vector<uint32_t>::iterator j = (*i).second.begin();
+           j != (*i).second.end();
+           j++)
+        std::cout << (*j) << " ";
+      std::cout << ")" << std::endl;
+    }
+  }
+
+private:
+  double mProbReplaced;
+};
+static EdgeReplacingPerturber kerp;
+
 int
 main(int argc, char** argv)
 {
